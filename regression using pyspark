@@ -1,0 +1,119 @@
+### installing hadoop,spark and pyspark
+export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-amd64
+PATH=$JAVA_HOME/bin:$PATH
+export HADOOP_HOME=`pwd`/hadoop-2.7.3
+PATH=$HADOOP_HOME/bin:$PATH
+hadoop
+export SPARK_HOME=`pwd`/spark-2.3.0-bin-hadoop2.7
+PATH=$SPARK_HOME/bin:$PATH
+Spark-shell
+sudo apt update
+sudo apt install python3
+python3 –version
+alias python=python3
+export PYTHONPATH=$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.7-src.zip:$PYTHONPATH
+export PYSPARK_PYTHON=python3
+Pyspark
+pip install jupyter
+jupyter notebook
+
+### Regression using pyspark on supermarket sales data
+
+import pyspark
+from pyspark.sql import SparkSession
+spark=SparkSession.builder.appName('Assignment').getOrCreate()
+spark
+df_pyspark=spark.read.csv('supermarket_sales - Sheet1.csv',header=True,inferSchema=True)
+df_pyspark.show(5)
+
+df_pyspark = df_pyspark.drop("Invoice Id","Date","Time")
+df_pyspark.groupBy('gross margin percentage').count().show()
+df_pyspark = df_pyspark.drop("gross margin percentage")
+df_pyspark = df_pyspark.drop("Branch")
+df_pyspark.show(5)
+
+df_pyspark.groupBy('Gender').count().show()
+df_pyspark.groupBy('Product line').count().show()
+df_pyspark.groupBy('Payment').count().show()
+df_pyspark.groupBy('Customer type').count().show()
+df_pyspark.groupBy('City').count().show()
+df_pyspark.groupBy('Payment').count().show()
+
+from pyspark.ml.feature import StringIndexer
+indexer = StringIndexer(inputCol="Product line",outputCol="Product_cat")
+indexed = indexer.fit(df_pyspark).transform(df_pyspark)
+indexer = StringIndexer(inputCol="City",outputCol="City_cat")
+indexed1 = indexer.fit(indexed).transform(indexed)
+indexer = StringIndexer(inputCol="Gender",outputCol="Gender_cat")
+indexed2 = indexer.fit(indexed1).transform(indexed1)
+indexer = StringIndexer(inputCol="Customer type",outputCol="CustomerType_cat")
+indexed3 = indexer.fit(indexed2).transform(indexed2)
+indexer = StringIndexer(inputCol="Payment",outputCol="Payment_cat")
+indexed4 = indexer.fit(indexed3).transform(indexed3)
+
+indexed4.show(5)
+
+from pyspark.ml.linalg import Vector
+from pyspark.ml.feature import VectorAssembler
+assembler = VectorAssembler(inputCols=['Unit price', 'Quantity', 'Tax 5%', 'Total','cogs', 'Rating', 'Product_cat', 'City_cat', 'Gender_cat', 
+'CustomerType_cat','Payment_cat'],outputCol="features")
+output = assembler.transform(indexed4)
+final_data = output.select("features","gross income")
+final_data.show(5)
+
+
+
+from pyspark.ml.regression import LinearRegression
+train_data,test_data = final_data.randomSplit([0.7,0.3])
+
+lr = LinearRegression(featuresCol="features",labelCol="gross income")
+model = lr.fit(train_data)
+
+model.intercept
+model.coefficients
+print("Coefficients:"+str(model.coefficients))
+print("Intercept:  "+str(model.intercept))
+
+trainSummary = model.summary
+print("RootMeanSquaredError: %f" %trainSummary.rootMeanSquaredError)
+print("r2: %f" % trainSummary.r2)
+train_data.describe().show()
+
+predictions = model.transform(test_data)
+predictions.select("prediction","gross income","features").show(5)
+from pyspark.ml.evaluation import RegressionEvaluator
+pred_evaluator = RegressionEvaluator(predictionCol="prediction",labelCol="gross income",metricName="r2")
+print("R Squared (R2) on test data = %g" %pred_evaluator.evaluate(predictions))
+
+res = model.evaluate(test_data)
+print(f"""
+Linear Regression results Report
+=====================================================
+RootMeanSquaresError:\t {res.rootMeanSquaredError}
+MeanSquaredError:\t {res.meanSquaredError}
+R2:\t {res.r2}
+Adj R2:\t {res.r2adj}
+======================================================
+"""
+)
+trainSummary.residuals.show()
+
+#Decision tree regression
+from pyspark.ml.regression import DecisionTreeRegressor
+dt = DecisionTreeRegressor(featuresCol = 'features',labelCol = 'gross income')
+dt_model = dt.fit(train_data)
+dt_predictions=dt_model.transform(test_data)
+dt_evaluator = RegressionEvaluator(labelCol="gross income",predictionCol="prediction",metricName="rmse")
+rmse = dt_evaluator.evaluate(dt_predictions)
+print("Root Mean Squared Error (RMSE) on test data = %g" %rmse)
+
+#Gradient-boosted tree regression
+from pyspark.ml.regression import GBTRegressor
+gbt = GBTRegressor(featuresCol = 'features',labelCol = 'gross income',maxIter=10)
+gbt_model = gbt.fit(train_data)
+gbt_predictions = gbt_model.transform(test_data)
+gbt_predictions.select('prediction','gross income','features').show(5)
+
+gbt_evaluator = RegressionEvaluator(labelCol="gross income",predictionCol="prediction",metricName="rmse")
+rmse = gbt_evaluator.evaluate(gbt_predictions)
+print("Root Mean Squared Error (RMSE) on test data = %g" %rmse)
